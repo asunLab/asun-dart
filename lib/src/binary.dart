@@ -104,7 +104,9 @@ class _BinaryWriter {
 
   _BinaryWriter(int initialCapacity)
       : _buf = Uint8List(initialCapacity),
-        _view = ByteData.sublistView(Uint8List(initialCapacity));
+        _view = ByteData(0) {
+    _view = ByteData.sublistView(_buf);
+  }
 
   void _ensureCapacity(int extra) {
     if (_pos + extra <= _buf.length) return;
