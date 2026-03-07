@@ -3,7 +3,7 @@
 [![Pub Version](https://img.shields.io/pub/v/ason.svg)](https://pub.dev/packages/ason)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-高性能 [ASON](https://github.com/athxx/ason)（Array-Schema Object Notation）Dart 编解码库 —— 一种面向 LLM 交互和大规模数据传输的高效序列化格式。
+高性能 [ASON](https://github.com/ason-lab/ason)（Array-Schema Object Notation）Dart 编解码库 —— 一种面向 LLM 交互和大规模数据传输的高效序列化格式。
 
 [English](README.md)
 
@@ -283,7 +283,7 @@ dart run example/bench.dart
 
 ## ASON 格式规范
 
-完整的 [ASON 规范](https://github.com/athxx/ason/blob/main/docs/ASON_SPEC_CN.md) 包含语法规则、BNF 文法、转义规则、类型系统及 LLM 集成最佳实践。
+完整的 [ASON 规范](https://github.com/ason-lab/ason/blob/main/docs/ASON_SPEC_CN.md) 包含语法规则、BNF 文法、转义规则、类型系统及 LLM 集成最佳实践。
 
 ### 语法速查表
 
