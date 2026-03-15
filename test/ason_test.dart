@@ -262,29 +262,29 @@ void main() {
       expect(u.active, true);
     });
 
-    test('rejects schema type aliases', () {
+    test('rejects invalid schema types', () {
       expect(
-        () => decode('{id@integer,name@str,active@bool}:(1,Alice,true)'),
+        () => decode('{id@numx,name@str,active@bool}:(1,Alice,true)'),
         throwsA(isA<AsonError>()),
       );
       expect(
-        () => decode('{id@int,name@string,active@bool}:(1,Alice,true)'),
+        () => decode('{id@int,name@textx,active@bool}:(1,Alice,true)'),
         throwsA(isA<AsonError>()),
       );
       expect(
-        () => decode('{score@double}:(3.5)'),
+        () => decode('{score@decimalx}:(3.5)'),
         throwsA(isA<AsonError>()),
       );
       expect(
-        () => decode('{active@boolean}:(true)'),
+        () => decode('{active@flagx}:(true)'),
         throwsA(isA<AsonError>()),
       );
       expect(
-        () => decode('{tags@[string]}:([Alice])'),
+        () => decode('{tags@[textx]}:([Alice])'),
         throwsA(isA<AsonError>()),
       );
       expect(
-        () => decode('{profile@{name@string}}:((Alice))'),
+        () => decode('{profile@{name@textx}}:((Alice))'),
         throwsA(isA<AsonError>()),
       );
     });

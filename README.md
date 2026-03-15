@@ -111,9 +111,9 @@ final users2 = decodeListWith(s, User.fromFields);
 | Type           | ASON Representation   | Example                  |
 | -------------- | --------------------- | ------------------------ |
 | int            | Plain number          | `42`, `-100`             |
-| double         | Decimal number        | `3.14`, `-0.5`           |
+| float          | Decimal number        | `3.14`, `-0.5`           |
 | bool           | Literal               | `true`, `false`          |
-| String         | Unquoted or quoted    | `Alice`, `"Carol Smith"` |
+| str            | Unquoted or quoted    | `Alice`, `"Carol Smith"` |
 | null           | Empty (blank)         | _(blank)_ for null       |
 | List           | `[v1,v2,v3]`          | `[rust,go,python]`       |
 | Entry list     | `[(key,value), ...]`  | `[(age,30),(score,95)]`  |
@@ -177,7 +177,7 @@ Annotations are **purely decorative metadata** — they do not affect parsing or
 
 - LLM prompts — helps models understand and generate correct data
 - API documentation — self-describing schema without external docs
-- Cross-language exchange — eliminates type ambiguity (is `42` an int or double?)
+- Cross-language exchange — eliminates type ambiguity (is `42` an `int` or `float`?)
 - Debugging — see data types at a glance
 
 ### Comments
