@@ -369,6 +369,13 @@ void main() {
       );
     });
 
+    test('rejects multiple tuples after a single-row schema', () {
+      expect(
+        () => decode('{id@int,name@str}:(101,Alice),(102,Bob)'),
+        throwsA(isA<AsonError>()),
+      );
+    });
+
     test('trailing comma', () {
       final users = decodeListWith(
         '[{id,name,active}]:(1,Alice,true),(2,Bob,false),',
