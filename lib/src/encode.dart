@@ -2,6 +2,7 @@ import 'error.dart';
 import 'schema.dart';
 
 const _kSpecial = <int>{
+  0x20, // space
   0x2C, // ,
   0x40, // @
   0x28, // (
@@ -11,6 +12,10 @@ const _kSpecial = <int>{
   0x7B, // {
   0x7D, // }
   0x3A, // :
+  0x3C, // <
+  0x3E, // >
+  0x2F, // /
+  0x2A, // *
   0x22, // "
   0x5C, // \
   0x0A, // \n
@@ -285,7 +290,12 @@ void _writeTuple(StringBuffer buf, List values) {
 }
 
 void _encodeValue(StringBuffer buf, dynamic v) {
-  if (v == null) return;
+  if (v == null) {
+    // Untyped null: emit `()` (empty parens). The decoder accepts this as
+    // null in any value position, including inside arrays.
+    buf.write('()');
+    return;
+  }
   if (v is bool) {
     buf.write(v ? 'true' : 'false');
     return;
@@ -328,25 +338,32 @@ void _encodeValue(StringBuffer buf, dynamic v) {
 bool _needsQuoting(String s) {
   if (s.isEmpty) return true;
   final units = s.codeUnits;
-  if (units.first == 0x20 || units.last == 0x20) return true;
-  if (s == 'true' || s == 'false') return true;
-
-  for (int i = 0; i < units.length; i++) {
-    if (_kSpecial.contains(units[i])) return true;
+  // Leading/trailing ASCII whitespace forces quoting (SPEC §S2 trim).
+  final first = units.first;
+  final last = units.last;
+  if (first == 0x20 || first == 0x09 || first == 0x0A || first == 0x0D) return true;
+  if (last == 0x20 || last == 0x09 || last == 0x0A || last == 0x0D) return true;
+  if (s == 'true' || s == 'false' || s == 'True' || s == 'False' || s == 'TRUE' || s == 'FALSE') {
+    return true;
   }
 
-  int start = 0;
-  if (units.isNotEmpty && units[0] == 0x2D) start = 1;
-  if (start < units.length) {
-    bool couldBeNumber = true;
-    for (int i = start; i < units.length; i++) {
-      final c = units[i];
-      if (!((c >= 0x30 && c <= 0x39) || c == 0x2E)) {
-        couldBeNumber = false;
-        break;
-      }
-    }
-    if (couldBeNumber) return true;
+  for (int i = 0; i < units.length; i++) {
+    final c = units[i];
+    if (c <= 0x1f || c == 0x7f) return true;
+    if (_kSpecial.contains(c)) return true;
+  }
+
+  // Number-like prefix forces quoting: if the decoder would start parsing
+  // this as a number, the string is ambiguous (e.g. "1.2.3", "123abc").
+  final c0 = units[0];
+  if (c0 >= 0x30 && c0 <= 0x39) return true; // leading digit
+  if ((c0 == 0x2D || c0 == 0x2B) && units.length >= 2) {
+    final c1 = units[1];
+    if (c1 >= 0x30 && c1 <= 0x39) return true; // sign + digit
+  }
+  if (c0 == 0x2E && units.length >= 2) {
+    final c1 = units[1];
+    if (c1 >= 0x30 && c1 <= 0x39) return true; // .digit
   }
 
   return false;
@@ -376,6 +393,10 @@ void _writeEscaped(StringBuffer buf, String s) {
         buf.write(r'\r');
       case 0x09:
         buf.write(r'\t');
+      case 0x08:
+        buf.write(r'\b');
+      case 0x0C:
+        buf.write(r'\f');
       case 0x2C:
         buf.write(r'\,');
       case 0x28:
@@ -387,19 +408,29 @@ void _writeEscaped(StringBuffer buf, String s) {
       case 0x5D:
         buf.write(r'\]');
       default:
-        buf.writeCharCode(c);
+        if (c < 0x20 || c == 0x7F) {
+          buf.write('\\u');
+          buf.write(c.toRadixString(16).padLeft(4, '0'));
+        } else {
+          buf.writeCharCode(c);
+        }
     }
   }
   buf.write('"');
 }
 
 void _writeDouble(StringBuffer buf, double v) {
-  if (v.isFinite && v == v.truncateToDouble()) {
+  // Out-of-int64-range or non-finite floats: defer to Dart's own formatter,
+  // which uses scientific notation for very large/small magnitudes.
+  if (!v.isFinite || v.abs() >= 9.223372036854776e18) {
+    buf.write(v.toString());
+    return;
+  }
+  if (v == v.truncateToDouble()) {
     buf.write(v.toInt().toString());
     buf.write('.0');
     return;
   }
-  if (v.isFinite) {
     final v10 = v * 10;
     if (v10 == v10.truncateToDouble() && v10.abs() < 1e15) {
       final vi = v10.toInt();
@@ -426,7 +457,6 @@ void _writeDouble(StringBuffer buf, double v) {
       if (d2 != 0) buf.write(d2.toString());
       return;
     }
-  }
   buf.write(v.toString());
 }
 

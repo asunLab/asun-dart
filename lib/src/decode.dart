@@ -135,6 +135,15 @@ class _Decoder {
     if (c == 0x7B) {
       return _parseSingleStruct();
     }
+    // SPEC §8.3: bare `(...)` at top level is forbidden — tuples may only
+    // follow a schema header. Exception: `()` is the untyped null marker.
+    if (c == 0x28) {
+      if (_pos + 1 < _len && _input.codeUnitAt(_pos + 1) == 0x29) {
+        _pos += 2;
+        return null;
+      }
+      throw AsunError('bare tuple at top level — schema required');
+    }
     // Plain value
     return _parseValueFast();
   }
@@ -418,8 +427,14 @@ class _Decoder {
       }
     }
 
-    // Nested tuple
-    if (c == 0x28) return _parseTupleValue();
+    // `()` is the untyped null marker (matches dart/rust encoder convention).
+    if (c == 0x28) {
+      if (_pos + 1 < _len && _input.codeUnitAt(_pos + 1) == 0x29) {
+        _pos += 2;
+        return null;
+      }
+      return _parseTupleValue();
+    }
 
     // Array
     if (c == 0x5B) return _parseArray();
@@ -461,19 +476,41 @@ class _Decoder {
       _pos++;
       digits++;
     }
-    if (digits == 0) throw AsunError.invalidNumber;
+    if (digits == 0) {
+      // No digits after '-' (e.g. "-foo", "- 5"). SPEC §8.7 / §8.1: this is
+      // a plain string, not a number error.
+      _pos = start;
+      return _parsePlainValue();
+    }
 
     if (_pos < _len && _input.codeUnitAt(_pos) == 0x2E) {
       _pos = start;
-      return _parseFloat();
+      try {
+        return _parseFloat();
+      } on FormatException {
+        _pos = start;
+        return _parsePlainValue();
+      }
     }
 
     if (_pos < _len) {
       final e = _input.codeUnitAt(_pos);
       if (e == 0x65 || e == 0x45) {
         _pos = start;
-        return _parseFloat();
+        try {
+          return _parseFloat();
+        } on FormatException {
+          _pos = start;
+          return _parsePlainValue();
+        }
       }
+    }
+
+    // SPEC §8.1: a value that doesn't terminate at a delimiter / EOF
+    // (e.g. "123abc") is a plain string, not "trailing characters".
+    if (_pos < _len && !_isDelimiter(_input.codeUnitAt(_pos))) {
+      _pos = start;
+      return _parsePlainValue();
     }
 
     return negative ? -intVal : intVal;
@@ -482,33 +519,58 @@ class _Decoder {
   double _parseFloat() {
     final start = _pos;
     if (_pos < _len && _input.codeUnitAt(_pos) == 0x2D) _pos++;
+    final intStart = _pos;
     while (_pos < _len &&
         _input.codeUnitAt(_pos) >= 0x30 &&
         _input.codeUnitAt(_pos) <= 0x39) {
       _pos++;
     }
+    final intDigits = _pos - intStart;
+    bool hasFracOrExp = false;
+    // ABNF: fractional part requires ≥1 digit if '.' is present.
     if (_pos < _len && _input.codeUnitAt(_pos) == 0x2E) {
+      final dot = _pos;
       _pos++;
+      final fracStart = _pos;
       while (_pos < _len &&
           _input.codeUnitAt(_pos) >= 0x30 &&
           _input.codeUnitAt(_pos) <= 0x39) {
         _pos++;
       }
+      if (_pos == fracStart) {
+        _pos = dot; // "5." → not a number
+      } else {
+        hasFracOrExp = true;
+      }
     }
+    // ABNF: exponent requires ≥1 digit after optional sign.
     if (_pos < _len) {
       final e = _input.codeUnitAt(_pos);
       if (e == 0x65 || e == 0x45) {
+        final mark = _pos;
         _pos++;
         if (_pos < _len) {
           final s = _input.codeUnitAt(_pos);
           if (s == 0x2B || s == 0x2D) _pos++;
         }
+        final expStart = _pos;
         while (_pos < _len &&
             _input.codeUnitAt(_pos) >= 0x30 &&
             _input.codeUnitAt(_pos) <= 0x39) {
           _pos++;
         }
+        if (_pos == expStart) {
+          _pos = mark; // "1e" / "1e+" → not a number
+        } else {
+          hasFracOrExp = true;
+        }
       }
+    }
+    // No integer digits, or no '.' / 'e' was actually consumed → not a float.
+    // Throw an internal sentinel so the caller can fall back to plain-string.
+    if (intDigits == 0 || !hasFracOrExp) {
+      _pos = start;
+      throw const FormatException('not a float');
     }
     final s = _input.substring(start, _pos);
     return double.parse(s);
@@ -563,6 +625,10 @@ class _Decoder {
             buf.write('\t');
           case 0x72:
             buf.write('\r');
+          case 0x62:
+            buf.write('\b');
+          case 0x66:
+            buf.write('\f');
           case 0x2C:
             buf.write(',');
           case 0x28:
@@ -602,7 +668,27 @@ class _Decoder {
         _pos++;
       }
     }
-    final raw = _input.substring(start, _pos).trim();
+    // Trim only ASCII whitespace (SPEC §S2). Do NOT use String.trim(), which
+    // strips Unicode whitespace including U+FEFF BOM and would corrupt valid
+    // string content.
+    int s = start, e = _pos;
+    while (s < e) {
+      final c = _input.codeUnitAt(s);
+      if (c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D) {
+        s++;
+      } else {
+        break;
+      }
+    }
+    while (e > s) {
+      final c = _input.codeUnitAt(e - 1);
+      if (c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D) {
+        e--;
+      } else {
+        break;
+      }
+    }
+    final raw = _input.substring(s, e);
     if (raw.contains(r'\')) {
       return _unescapePlain(raw);
     }
@@ -636,6 +722,12 @@ class _Decoder {
             buf.write('\n');
           case 0x74:
             buf.write('\t');
+          case 0x72:
+            buf.write('\r');
+          case 0x62:
+            buf.write('\b');
+          case 0x66:
+            buf.write('\f');
           case 0x75: // u
             if (i + 4 >= units.length) throw AsunError.invalidUnicodeEscape;
             final hex = s.substring(i + 1, i + 5);
